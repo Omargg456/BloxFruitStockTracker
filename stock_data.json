@@ -1,7 +1,7 @@
 {
-  "updated_at": null,
+  "updated_at": "2026-11-13T14:45:45+00:00",
   "normal_stock": [],
   "mirage_stock": [],
   "history": [],
-  "note": "لم يتم جلب البيانات بعد. شغّل Action «Update stock» من تبويب Actions."
+  "note": "لم يعثر السكريبت على المخزون الحالي في الويكي (قد يكون المصدر توقف عن نشره)."
 }
