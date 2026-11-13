@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Blox Fruits Stock Tracker</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#38bdf8">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;700;900&display=swap" rel="stylesheet">
+<script>
+tailwind.config = { theme: { extend: {
+  fontFamily: { cairo: ['Cairo', 'sans-serif'] },
+  colors: { 'blox-dark': '#0f172a', 'blox-neon': '#38bdf8', 'blox-legendary': '#a855f7', 'blox-rare': '#3b82f6' }
+} } }
+</script>
+<style>
+body { font-family: 'Cairo', sans-serif; background: #0f172a; color: #f8fafc; }
+.glass-effect { background: rgba(30,41,59,.7); backdrop-filter: blur(10px); border: 1px solid rgba(255,255,255,.1); }
+.wishlist-active { color: #f59e0b; text-shadow: 0 0 10px rgba(245,158,11,.5); }
+.shine { position: absolute; inset: 0; pointer-events: none; background: linear-gradient(110deg, transparent, rgba(254,240,138,.12), transparent); transform: translateX(-100%); animation: shimmer 2.5s infinite; }
+@keyframes shimmer { to { transform: translateX(100%); } }
+@media (prefers-reduced-motion: reduce) { .shine { animation: none; } }
+</style>
+</head>
+<body class="min-h-screen pb-20">
+
+<nav class="glass-effect sticky top-0 z-50 p-4 shadow-lg">
+  <div class="container mx-auto flex justify-between items-center">
+    <div class="flex items-center gap-3">
+      <i class="fa-solid fa-ship text-2xl text-blox-neon"></i>
+      <h1 class="text-xl font-bold tracking-wider">Stock <span class="text-blox-neon">Tracker</span></h1>
+    </div>
+    <button id="bell" class="bg-slate-700 hover:bg-slate-600 px-4 py-2 rounded-lg text-sm font-bold transition">
+      <i class="fa-solid fa-bell ml-1"></i> <span id="bell-text">تفعيل الإشعارات</span>
+    </button>
+  </div>
+</nav>
+
+<main class="container mx-auto px-4 mt-8">
+  <div class="bg-gradient-to-r from-blue-900 to-indigo-900 rounded-2xl p-6 mb-4 text-center shadow-2xl border border-blue-500/30">
+    <h2 id="countdown-label" class="text-lg font-semibold text-blue-200 mb-2">تحديث المتجر القادم بعد:</h2>
+    <div id="countdown" dir="ltr" class="text-4xl md:text-5xl font-black text-white tracking-widest drop-shadow-md">00:00:00</div>
+  </div>
+  <p id="meta" class="text-center text-xs text-gray-400 mb-6"></p>
+  <div id="note" class="hidden mb-6 p-4 rounded-xl bg-amber-900/30 border border-amber-500/40 text-amber-200 text-sm text-center"></div>
+
+  <div class="flex justify-center flex-wrap gap-3 md:gap-4 mb-8">
+    <button data-tab="normal" class="tab flex-1 md:flex-none px-6 py-3 rounded-xl font-bold transition-all"><i class="fa-solid fa-store ml-2"></i> المتجر العادي</button>
+    <button data-tab="mirage" class="tab flex-1 md:flex-none px-6 py-3 rounded-xl font-bold transition-all"><i class="fa-solid fa-moon ml-2"></i> متجر السراب</button>
+    <button data-tab="history" class="tab w-full md:w-auto px-6 py-3 rounded-xl font-bold transition-all"><i class="fa-solid fa-clock-rotate-left ml-2"></i> السجل</button>
+  </div>
+
+  <div id="fruits-container"></div>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const store = {
+  get(k, d) { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } },
+  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} }
+};
+
+let wishlist = store.get('blox_wishlist', []);
+let data = { normal: [], mirage: [], history: [], updated: null, note: '' };
+let tab = 'normal';
+let loaded = false;
+
+const RARITY_STYLE = {
+  Mythical: 'text-yellow-400 border-yellow-500/50 shadow-[0_0_20px_rgba(250,204,21,0.3)] bg-yellow-900/10',
+  Legendary: 'text-blox-legendary border-blox-legendary/30 shadow-[0_0_10px_rgba(168,85,247,0.2)]',
+  Rare: 'text-blox-rare border-blox-rare/30'
+};
+const ACTIVE = ['bg-blox-neon', 'text-blox-dark', 'shadow-[0_0_15px_rgba(56,189,248,0.4)]'];
+const INACTIVE = ['bg-slate-800', 'text-gray-300', 'hover:bg-slate-700'];
+
+async function fetchStockData() {
+  try {
+    const res = await fetch('stock_data.json?t=' + Date.now(), { cache: 'no-store' });
+    if (!res.ok) throw new Error(res.status);
+    const d = await res.json();
+    data = { normal: d.normal_stock || [], mirage: d.mirage_stock || [], history: d.history || [],
+             updated: d.updated_at || null, note: d.note || '' };
+    loaded = 'ok';
+    notifyWishlist();
+  } catch (e) {
+    loaded = 'error';
+  }
+  render();
+}
+
+function render() {
+  const c = $('fruits-container');
+  const note = $('note');
+  note.classList.toggle('hidden', !data.note);
+  note.textContent = data.note;
+  $('meta').textContent = data.updated ? 'آخر تحديث للبيانات: ' + new Date(data.updated).toLocaleString('ar') : '';
+
+  if (loaded === 'error') {
+    c.className = '';
+    c.innerHTML = `<div class="text-center py-10 bg-red-900/20 border border-red-500/30 rounded-xl">
+      <i class="fa-solid fa-triangle-exclamation text-4xl text-red-400 mb-3"></i>
+      <h3 class="text-xl font-bold text-red-400">تعذّر جلب بيانات المتجر</h3>
+      <p class="text-gray-400 mt-2">تأكد من وجود الملف stock_data.json، وشغّل Action ‏«Update stock» من تبويب Actions.</p></div>`;
+    return;
+  }
+  if (!loaded) { c.innerHTML = '<p class="text-center text-gray-400 py-10">جاري التحميل...</p>'; return; }
+
+  if (tab === 'history') {
+    c.className = 'flex flex-col gap-6';
+    c.innerHTML = data.history.length ? data.history.map(r => `
+      <div class="glass-effect p-4 rounded-xl flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div class="flex items-center gap-3"><i class="fa-solid fa-clock text-blox-neon text-xl"></i>
+          <h3 dir="ltr" class="font-bold text-lg">${esc(r.date)}</h3></div>
+        <div class="flex flex-wrap gap-2">${r.stock.map(f =>
+          `<span class="bg-slate-700 px-2 py-1 rounded text-sm ${f.rarity === 'Mythical' ? 'text-yellow-400 font-bold' : 'text-gray-300'}">${esc(f.name)}</span>`).join('')}</div>
+      </div>`).join('') : '<p class="text-center py-10 text-gray-400">لا يوجد سجل سابق بعد. سيمتلئ تلقائيًا عند تغيّر المخزون.</p>';
+    return;
+  }
+
+  c.className = 'grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 md:gap-6';
+  const fruits = data[tab];
+  if (!fruits.length) {
+    c.innerHTML = `<p class="col-span-full text-center py-10 text-gray-400">${tab === 'mirage'
+      ? 'مخزون السراب غير متوفر: الويكي لا ينشره لأنه يتغير كل ساعتين.' : 'لا توجد فواكه متوفرة حالياً في هذا المتجر.'}</p>`;
+    return;
+  }
+  c.innerHTML = fruits.map(f => {
+    const style = RARITY_STYLE[f.rarity] || 'text-gray-300 border-gray-600';
+    const wished = wishlist.includes(f.name);
+    return `<div class="glass-effect overflow-hidden rounded-2xl p-4 border flex flex-col items-center relative transition-transform hover:-translate-y-1 ${style}">
+      ${f.rarity === 'Mythical' ? '<div class="shine"></div>' : ''}
+      <button data-wish="${esc(f.name)}" aria-label="المفضلة" class="absolute top-3 left-3 text-xl transition-colors z-10 ${wished ? 'wishlist-active' : 'text-gray-500'}"><i class="fa-solid fa-star"></i></button>
+      <h3 class="text-xl font-bold mb-1 mt-6 text-center z-10">${esc(f.name)}</h3>
+      <span class="text-xs bg-slate-700/80 px-2 py-1 rounded text-gray-200 mb-3 z-10">${esc(f.type || '')} · ${esc(f.rarity || '')}</span>
+      <div class="w-full bg-slate-800/80 rounded-lg p-2 text-sm space-y-1 z-10">
+        <div class="flex justify-between"><span class="text-gray-400">Beli:</span><span class="font-bold text-green-400">$${esc(f.price)}</span></div>
+        <div class="flex justify-between"><span class="text-gray-400">Robux:</span><span class="font-bold text-yellow-400">${esc(f.robux)}</span></div>
+      </div></div>`;
+  }).join('');
+}
+
+$('fruits-container').addEventListener('click', e => {
+  const b = e.target.closest('[data-wish]');
+  if (!b) return;
+  const name = b.dataset.wish, i = wishlist.indexOf(name);
+  i > -1 ? wishlist.splice(i, 1) : wishlist.push(name);
+  store.set('blox_wishlist', wishlist);
+  b.classList.toggle('wishlist-active', i === -1);
+  b.classList.toggle('text-gray-500', i > -1);
+});
+
+function switchTab(t) {
+  tab = t;
+  document.querySelectorAll('.tab').forEach(el => {
+    const on = el.dataset.tab === t;
+    el.classList.add(...(on ? ACTIVE : INACTIVE));
+    el.classList.remove(...(on ? INACTIVE : ACTIVE));
+  });
+  updateTimer();
+  render();
+}
+document.querySelectorAll('.tab').forEach(el => el.addEventListener('click', () => switchTab(el.dataset.tab)));
+
+// التحديث كل 4 ساعات (عادي) أو ساعتين (سراب)، محسوبًا بتوقيت UTC فيتطابق في كل البلدان
+let lastDiff = 0;
+function updateTimer() {
+  const hours = tab === 'mirage' ? 2 : 4, step = hours * 3600000, now = Date.now();
+  const diff = (Math.floor(now / step) + 1) * step - now;
+  if (diff > lastDiff && lastDiff) setTimeout(fetchStockData, 60000);
+  lastDiff = diff;
+  const p = n => String(n).padStart(2, '0');
+  $('countdown').textContent = `${p(Math.floor(diff / 3600000))}:${p(Math.floor(diff % 3600000 / 60000))}:${p(Math.floor(diff % 60000 / 1000))}`;
+  $('countdown-label').textContent = tab === 'mirage' ? 'تحديث متجر السراب بعد:' : 'تحديث المتجر القادم بعد:';
+}
+
+// الإشعارات: تنبيه عند فتح الموقع إذا كانت إحدى فواكهك المفضلة في المخزون
+function updateBell() {
+  const ok = 'Notification' in window && Notification.permission === 'granted';
+  $('bell-text').textContent = ok ? 'الإشعارات مفعّلة' : 'تفعيل الإشعارات';
+}
+$('bell').addEventListener('click', async () => {
+  if (!('Notification' in window)) return alert('متصفحك لا يدعم الإشعارات.');
+  await Notification.requestPermission();
+  updateBell();
+  notifyWishlist();
+});
+async function notifyWishlist() {
+  if (!('Notification' in window) || Notification.permission !== 'granted' || !data.updated) return;
+  const hits = [...new Set([...data.normal, ...data.mirage].map(f => f.name).filter(n => wishlist.includes(n)))];
+  if (!hits.length || store.get('blox_notified') === data.updated) return;
+  store.set('blox_notified', data.updated);
+  const opts = { body: 'متوفرة الآن: ' + hits.join('، '), icon: 'icon-192.png' };
+  try { (await navigator.serviceWorker.ready).showNotification('Blox Fruits Stock', opts); }
+  catch { try { new Notification('Blox Fruits Stock', opts); } catch {} }
+}
+
+window.addEventListener('load', () => {
+  switchTab('normal');
+  updateBell();
+  fetchStockData();
+  setInterval(updateTimer, 1000);
+  setInterval(fetchStockData, 10 * 60000);
+  if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(err => console.log('SW:', err));
+});
+</script>
+</body>
+</html>
